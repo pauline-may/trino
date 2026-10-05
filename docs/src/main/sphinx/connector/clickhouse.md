@@ -402,6 +402,9 @@ The connector supports pushdown for a number of operations:
 - {func}`min`
 - {func}`sum`
 
+Widening casts between integer types, such as `CAST(int32_column AS BIGINT)`,
+are pushed down. As a result, {func}`sum` and {func}`avg` on `Int8`, `Int16`,
+`Int32`, `UInt8` and `UInt16` columns are pushed down as well.
 
 ```{include} pushdown-correctness-behavior.fragment
 ```

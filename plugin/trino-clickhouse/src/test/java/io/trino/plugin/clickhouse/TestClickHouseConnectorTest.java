@@ -19,6 +19,7 @@ import io.trino.Session;
 import io.trino.plugin.jdbc.BaseJdbcConnectorTest;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.FilterNode;
+import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
@@ -46,6 +47,7 @@ import static io.trino.plugin.clickhouse.ClickHouseTableProperties.PARTITION_BY_
 import static io.trino.plugin.clickhouse.ClickHouseTableProperties.PRIMARY_KEY_PROPERTY;
 import static io.trino.plugin.clickhouse.ClickHouseTableProperties.SAMPLE_BY_PROPERTY;
 import static io.trino.plugin.clickhouse.TestingClickHouseServer.CLICKHOUSE_LATEST_IMAGE;
+import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.COMPLEX_EXPRESSION_PUSHDOWN;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.DOMAIN_COMPACTION_THRESHOLD;
 import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.UNSUPPORTED_TYPE_HANDLING;
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
@@ -633,6 +635,45 @@ public class TestClickHouseConnectorTest
     protected TestTable createTableWithDoubleAndRealColumns(String name, List<String> rows)
     {
         return new TestTable(onRemoteDatabase(), name, "(t_double Nullable(Float64), u_double Nullable(Float64), v_real Nullable(Float32), w_real Nullable(Float32)) Engine=Log", rows);
+    }
+
+    @Test
+    public void testIntegerAggregationPushdown()
+    {
+        // sum and avg take bigint, so the planner casts narrower columns below the aggregation; the cast is pushed down too
+        String schemaName = getSession().getSchema().orElseThrow();
+        List<String> columns = ImmutableList.of("a_int8", "a_int16", "a_int32", "a_uint8", "a_uint16", "not_null_int32");
+        try (TestTable table = new TestTable(
+                onRemoteDatabase(),
+                schemaName + ".test_integer_aggregation_pushdown",
+                "(id Int64, a_int8 Nullable(Int8), a_int16 Nullable(Int16), a_int32 Nullable(Int32), a_uint8 Nullable(UInt8), a_uint16 Nullable(UInt16), not_null_int32 Int32) Engine=Log",
+                ImmutableList.of(
+                        "1, 127, 32767, 2147483647, 255, 65535, 2147483647",
+                        "2, 127, 32767, 2147483647, 255, 65535, 2147483647",
+                        "3, 127, 32767, 2147483647, 255, 65535, 2147483647",
+                        "4, -128, -32768, -2147483648, 0, 0, -2147483648",
+                        "5, NULL, NULL, NULL, NULL, NULL, 1"))) {
+            for (String column : columns) {
+                assertThat(query("SELECT sum(%s) FROM %s".formatted(column, table.getName()))).isFullyPushedDown();
+                assertThat(query("SELECT avg(%s) FROM %s".formatted(column, table.getName()))).isFullyPushedDown();
+                assertThat(query("SELECT sum(DISTINCT %s) FROM %s".formatted(column, table.getName()))).isFullyPushedDown();
+                assertThat(query("SELECT id, sum(%s) FROM %s GROUP BY id".formatted(column, table.getName()))).isFullyPushedDown();
+                assertThat(query("SELECT sum(%1$s), avg(%1$s) FROM %2$s WHERE id < 0".formatted(column, table.getName())))
+                        .matches("VALUES (CAST(NULL AS bigint), CAST(NULL AS double))")
+                        .isFullyPushedDown();
+            }
+
+            // the sums do not fit in the column types
+            assertThat(query("SELECT sum(a_int8), sum(a_int16), sum(a_int32), sum(a_uint8), sum(a_uint16), sum(not_null_int32) FROM " + table.getName()))
+                    .matches("VALUES (BIGINT '253', BIGINT '65533', BIGINT '4294967293', BIGINT '765', BIGINT '196605', BIGINT '4294967294')")
+                    .isFullyPushedDown();
+
+            Session withoutExpressionPushdown = Session.builder(getSession())
+                    .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), COMPLEX_EXPRESSION_PUSHDOWN, "false")
+                    .build();
+            assertThat(query(withoutExpressionPushdown, "SELECT sum(a_int32) FROM " + table.getName()))
+                    .isNotFullyPushedDown(AggregationNode.class, ProjectNode.class);
+        }
     }
 
     @Test
