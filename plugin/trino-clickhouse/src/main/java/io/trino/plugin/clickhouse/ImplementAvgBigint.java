@@ -21,6 +21,6 @@ public class ImplementAvgBigint
     @Override
     protected String getRewriteFormatExpression()
     {
-        return "avg((%s * 1.0))";
+        return "avgOrNull((%s * 1.0))";
     }
 }

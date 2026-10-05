@@ -49,15 +49,9 @@ import io.trino.plugin.jdbc.QueryBuilder;
 import io.trino.plugin.jdbc.RemoteTableName;
 import io.trino.plugin.jdbc.SliceWriteFunction;
 import io.trino.plugin.jdbc.WriteMapping;
-import io.trino.plugin.jdbc.aggregation.ImplementAvgFloatingPoint;
-import io.trino.plugin.jdbc.aggregation.ImplementCorr;
 import io.trino.plugin.jdbc.aggregation.ImplementCount;
 import io.trino.plugin.jdbc.aggregation.ImplementCountAll;
 import io.trino.plugin.jdbc.aggregation.ImplementCountDistinct;
-import io.trino.plugin.jdbc.aggregation.ImplementCovariancePop;
-import io.trino.plugin.jdbc.aggregation.ImplementCovarianceSamp;
-import io.trino.plugin.jdbc.aggregation.ImplementMinMax;
-import io.trino.plugin.jdbc.aggregation.ImplementSum;
 import io.trino.plugin.jdbc.expression.JdbcConnectorExpressionRewriterBuilder;
 import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.plugin.jdbc.logging.RemoteQueryModifier;
@@ -247,13 +241,11 @@ public class ClickHouseClient
                         .add(new ImplementCountAll(bigintTypeHandle))
                         .add(new ImplementCount(bigintTypeHandle))
                         .add(new ImplementCountDistinct(bigintTypeHandle, true))
-                        .add(new ImplementMinMax(true))
-                        .add(new ImplementSum(ClickHouseClient::toTypeHandle))
-                        .add(new ImplementAvgFloatingPoint())
+                        .add(new ImplementClickHouseMinMax())
+                        .add(new ImplementClickHouseSum(ClickHouseClient::toTypeHandle))
+                        .add(new ImplementClickHouseAvgFloatingPoint())
                         .add(new ImplementAvgBigint())
-                        .add(new ImplementCorr())
-                        .add(new ImplementCovarianceSamp())
-                        .add(new ImplementCovariancePop())
+                        .add(new ImplementClickHouseCovariance())
                         .build());
     }
 

@@ -623,6 +623,27 @@ public class TestClickHouseConnectorTest
         }
     }
 
+    @Test
+    public void testAggregationPushdownOnEmptyTableWithNotNullColumns()
+    {
+        // The aggregation test tables have Nullable columns, for which ClickHouse returns NULL for empty input on its own
+        String schemaName = getSession().getSchema().orElseThrow();
+        try (TestTable table = new TestTable(
+                onRemoteDatabase(),
+                schemaName + ".test_empty_not_null_agg",
+                "(a_bigint Int64, t_double Float64, u_double Float64, v_real Float32, w_real Float32, short_decimal Decimal(9, 3)) Engine=Log",
+                ImmutableList.of())) {
+            assertThat(query("SELECT min(a_bigint), min(t_double), min(v_real), min(short_decimal) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT max(a_bigint), max(t_double), max(v_real), max(short_decimal) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT sum(a_bigint), sum(t_double), sum(v_real), sum(short_decimal) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT sum(DISTINCT a_bigint), avg(a_bigint), avg(t_double), avg(v_real) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT count(*), count(a_bigint), count(DISTINCT a_bigint) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT corr(t_double, u_double), corr(v_real, w_real) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT covar_samp(t_double, u_double), covar_samp(v_real, w_real) FROM " + table.getName())).isFullyPushedDown();
+            assertThat(query("SELECT covar_pop(t_double, u_double), covar_pop(v_real, w_real) FROM " + table.getName())).isFullyPushedDown();
+        }
+    }
+
     @Override
     protected TestTable createAggregationTestTable(String name, List<String> rows)
     {
